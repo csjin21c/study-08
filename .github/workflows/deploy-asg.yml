@@ -60,10 +60,10 @@ jobs:
       - name: Deploy to EC2 via SSM
         run: |
           # 1. 쉘 스크립트에서 사용할 변수를 정리합니다.
-          REGISTRY="${{ steps.login-ecr.outputs.registry }}"
-          REPO="${{ secrets.ECR_REPOSITORY }}"
-          TAG="${{ github.sha }}"
-          IMAGE_URL="$REGISTRY/$REPO:$TAG"
+          # REGISTRY="${{ steps.login-ecr.outputs.registry }}"
+          # REPO="${{ secrets.ECR_REPOSITORY }}"
+          # TAG="${{ github.sha }}"
+          # IMAGE_URL="$REGISTRY/$REPO:$TAG"
 
           # 2. SSM Send-Command를 통해 EC2 내부에서 실행될 명령어를 전달합니다.
           aws ssm send-command \
@@ -75,13 +75,23 @@ jobs:
                 \"sudo mkdir -p /home/ec2-user/nginx/html\",
                 \"sudo mkdir -p /home/ec2-user/nginx/conf.d\",
                 \"sudo chown -R ec2-user:ec2-user /home/ec2-user/nginx\",
+                
                 \"aws s3 cp s3://${{ secrets.S3_BUCKET_NAME }}/config/default.conf /home/ec2-user/nginx/conf.d/default.conf\",
                 \"aws s3 sync s3://${{ secrets.S3_BUCKET_NAME }}/html/ /home/ec2-user/nginx/html/ --delete\",
+                
                 \"aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | sudo docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}\",
-                \"sudo docker pull ${IMAGE_URL}\",
+                
+                # 핵심: ${{ }} 가 직접 들어있어야 전송 전에 '진짜 주소'로 바뀝니다.
+                \"sudo docker pull ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY }}:${{ github.sha }}\",
+                
                 \"sudo docker stop nginx-server || true\",
                 \"sudo docker rm nginx-server || true\",
-                \"sudo docker run -d --name nginx-server -p 80:80 -v /home/ec2-user/nginx/conf.d/default.conf:/etc/nginx/conf.d/default.conf -v /home/ec2-user/nginx/html:/usr/share/nginx/html ${IMAGE_URL}\",
+                
+                \"sudo docker run -d --name nginx-server -p 80:80 \
+                  -v /home/ec2-user/nginx/conf.d/default.conf:/etc/nginx/conf.d/default.conf \
+                  -v /home/ec2-user/nginx/html:/usr/share/nginx/html \
+                  ${{ steps.login-ecr.outputs.registry }}/${{ secrets.ECR_REPOSITORY }}:${{ github.sha }}\",
+                
                 \"sudo docker image prune -f\"
               ]
             }"
